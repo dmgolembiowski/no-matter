@@ -1,0 +1,34 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: tauri-build
+      uses: JonasKruckenberg/tauri-build@v1.0.3
+      with:
+        # Binary to use to build the application
+        runner: # optional
+        # Additional arguments for the build command
+        args: # optional
+        # Path to the root of the project
+        projectPath: # optional
+        # Path to the tauri.conf.json file if you want a configuration different from the default one
+        configPath: # optional
+        # The target triple to build against
+        target: # optional
+        # Builds with the debug flag
+        debug: # optional
+          
