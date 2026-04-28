@@ -315,6 +315,26 @@ pub async fn open_dm(
     Ok(Json(dto))
 }
 
+/// Workspace-wide user directory. Drives member pickers in the modals so
+/// they can discover users the caller doesn't already share a channel
+/// with. Returns every user in the DB; modals filter self where it
+/// matters (DM picker). Cheap on the scale of a single team — revisit
+/// with pagination if the workspace grows past a few thousand accounts.
+pub async fn list_users(
+    State(state): State<AppState>,
+    _user: CurrentUser,
+) -> AppResult<Json<Vec<UserSummaryDto>>> {
+    let rows = Users::find().all(&state.db).await?;
+    let dtos = rows
+        .into_iter()
+        .map(|u| UserSummaryDto {
+            id: u.id,
+            username: u.username,
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
 pub async fn add_member(
     State(state): State<AppState>,
     user: CurrentUser,

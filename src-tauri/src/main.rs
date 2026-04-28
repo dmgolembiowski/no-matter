@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod audio;
 mod system;
 mod upload;
 mod ws;
@@ -15,6 +16,7 @@ fn main() {
             upload::upload_file,
             system::set_dock_badge,
             system::notify,
+            audio::play_chime,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

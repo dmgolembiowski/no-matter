@@ -25,4 +25,3 @@ impl AppState {
         Self { db, bus }
     }
 }
-

@@ -34,3 +34,17 @@ pub async fn notify(title: String, body: String) -> Result<(), String> {
         .map_err(|e| format!("{e:?}"))?;
     Ok(())
 }
+
+#[derive(Serialize)]
+struct NoArgs {}
+
+/// Play the embedded notification chime. The MP3 is baked into the
+/// Tauri binary; the command spawns a thread there and returns
+/// immediately. Failure (no audio device, no Tauri host) is non-fatal.
+pub async fn play_chime() -> Result<(), String> {
+    let _: () = invoke("play_chime", &NoArgs {})
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+

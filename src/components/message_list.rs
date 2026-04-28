@@ -26,12 +26,15 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::IntersectionObserver;
 
+use crate::markdown;
 use crate::server::messages::{
     edit_message, load_messages, mark_channel_read, Message, MessagePage,
 };
 use crate::stores::auth::AuthStore;
 use crate::stores::messages::MessageStore;
 use crate::stores::route::{Modal, RouteStore};
+use crate::stores::unread::UnreadStore;
+use crate::theme::ThemeStore;
 
 const PAGE_SIZE: u32 = 50;
 
@@ -130,15 +133,29 @@ pub fn MessageList(channel_id: String) -> impl IntoView {
         on_cleanup(move || observer.disconnect());
     });
 
-    // Mark-read: when the user has scrolled to the bottom and the
-    // channel has unread messages, send a mark-read for the latest id.
-    // The handler debounces via a signal; left as a stub.
-    let _mark_read = move |last_id: String| {
+    // Mark-read: a channel is in this component's view iff the user has
+    // it selected (Shell only mounts MessageList for the active route).
+    // So whenever this channel's UnreadStore slot says count > 0, the
+    // user is engaging with it and the badge should be cleared. The
+    // local clear is immediate; the server call persists the new
+    // last_read_message_id and triggers a `ChannelRead` event so other
+    // sessions of the same user (other tabs, other devices) match up.
+    let unread = expect_context::<UnreadStore>();
+    let unread_state = unread.channel(cid.get_value());
+    Effect::new(move |_| {
+        let snap = unread_state.get();
+        if snap.count == 0 {
+            return;
+        }
+        let Some(last_id) = snap.last_message_id.clone() else {
+            return;
+        };
         let channel = cid.get_value();
+        unread.mark_read(&channel);
         spawn_local(async move {
             let _ = mark_channel_read(channel, last_id).await;
         });
-    };
+    });
 
     view! {
         <div class="message-list">
@@ -175,6 +192,7 @@ fn MessageRow(channel_id: String, message_id: String) -> impl IntoView {
     let route = expect_context::<RouteStore>();
     let store = expect_context::<MessageStore>();
     let channels = expect_context::<crate::stores::channels::ChannelStore>();
+    let theme = expect_context::<ThemeStore>().current();
 
     let msg = store.message(channel_id.clone(), message_id.clone());
     let editing = RwSignal::new(false);
@@ -183,6 +201,10 @@ fn MessageRow(channel_id: String, message_id: String) -> impl IntoView {
     // changes, so the body update path doesn't redundantly re-evaluate
     // the author lookup or the is_mine comparison.
     let body = Memo::new(move |_| msg.with(|m| m.as_ref().map(|m| m.body.clone()).unwrap_or_default()));
+    // Markdown HTML re-renders when either the body or the theme
+    // changes — syntect's output is theme-baked, so a toggle has to
+    // recompute the highlight spans for code blocks to repaint.
+    let body_html = Memo::new(move |_| markdown::render(&body.get(), theme.get()));
     let author_id = Memo::new(move |_| msg.with(|m| m.as_ref().map(|m| m.author_id.clone()).unwrap_or_default()));
     let file_ids = Memo::new(move |_| msg.with(|m| m.as_ref().map(|m| m.file_ids.clone()).unwrap_or_default()));
 
@@ -238,7 +260,12 @@ fn MessageRow(channel_id: String, message_id: String) -> impl IntoView {
 
                 <Show
                     when=move || editing.get()
-                    fallback=move || view! { <div class="body">{move || body.get()}</div> }
+                    fallback=move || view! {
+                        <div
+                            class="body markdown"
+                            inner_html=move || body_html.get()
+                        ></div>
+                    }
                 >
                     <EditRow
                         initial=body.get_untracked()

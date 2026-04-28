@@ -58,11 +58,7 @@ impl ChannelStore {
         }
     }
 
-    pub fn hydrate(
-        &self,
-        channels: Vec<Channel>,
-        users: Vec<UserSummary>,
-    ) {
+    pub fn hydrate(&self, channels: Vec<Channel>, users: Vec<UserSummary>) {
         self.channels.update(|m| {
             m.clear();
             for c in channels {
@@ -83,8 +79,7 @@ impl ChannelStore {
         let store = self.channels;
         Memo::new(move |_| {
             store.with(|m| {
-                let mut v: Vec<Channel> =
-                    m.values().filter(|c| c.kind == kind).cloned().collect();
+                let mut v: Vec<Channel> = m.values().filter(|c| c.kind == kind).cloned().collect();
                 v.sort_by(|a, b| a.name.cmp(&b.name));
                 v
             })
@@ -104,6 +99,17 @@ impl ChannelStore {
     pub fn upsert(&self, channel: Channel) {
         self.channels.update(|m| {
             m.insert(channel.id.clone(), channel);
+        });
+    }
+
+    /// Upsert a fresh user directory snapshot without blowing away
+    /// existing entries. Modals call this after fetching `/api/list_users`
+    /// so newly-signed-up accounts become discoverable in member pickers.
+    pub fn merge_users(&self, users: Vec<UserSummary>) {
+        self.users.update(|m| {
+            for u in users {
+                m.insert(u.id.clone(), u);
+            }
         });
     }
 

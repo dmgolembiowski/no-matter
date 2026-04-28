@@ -59,8 +59,14 @@
   color-scheme: dark;
 }
 
+/* Light theme — applied when (a) the OS prefers light AND the user
+   hasn't explicitly chosen, OR (b) the user explicitly toggled light.
+   Keeping both selectors avoids a flash of dark on first paint when
+   the OS is light and the JS hasn't yet stamped data-theme. The
+   explicit data-theme always wins because the attribute selector is
+   later in source order. */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --bg-0:        #f7f8fb;
     --bg-1:        #ffffff;
     --bg-2:        #f1f3f8;
@@ -86,6 +92,33 @@
 
     color-scheme: light;
   }
+}
+
+:root[data-theme="light"] {
+  --bg-0:        #f7f8fb;
+  --bg-1:        #ffffff;
+  --bg-2:        #f1f3f8;
+  --bg-3:        #e6e9f1;
+  --bg-input:    #ffffff;
+  --bg-overlay:  rgba(20, 24, 30, 0.30);
+
+  --border:        rgba(15, 18, 24, 0.07);
+  --border-strong: rgba(15, 18, 24, 0.14);
+
+  --text:        #14161c;
+  --text-muted:  #4f5562;
+  --text-faint:  #8a90a0;
+
+  --accent:      hsl(var(--accent-h) 80% 56%);
+  --accent-2:    hsl(var(--accent-h) 80% 50%);
+  --accent-soft: hsl(var(--accent-h) 80% 56% / 0.12);
+  --accent-tint: hsl(var(--accent-h) 80% 56% / 0.06);
+
+  --shadow-sm: 0 1px 2px rgba(20, 22, 30, 0.06);
+  --shadow:    0 10px 24px -10px rgba(20, 22, 30, 0.18);
+  --shadow-lg: 0 24px 60px -16px rgba(20, 22, 30, 0.30);
+
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -394,6 +427,24 @@ textarea:focus-visible {
   color: var(--text);
 }
 
+.sidebar-theme {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.sidebar-theme:hover {
+  background: var(--bg-3);
+  color: var(--text);
+}
+
 .sidebar-section {
   padding: 8px 8px 10px;
 }
@@ -675,6 +726,100 @@ textarea:focus-visible {
   word-wrap: break-word;
   overflow-wrap: anywhere;
   color: var(--text);
+}
+
+/* Markdown-rendered message bodies. Block elements come out of
+   pulldown-cmark; we override the default white-space so paragraphs
+   wrap normally while fenced code keeps its own preformatting via
+   <pre>. Inline code is the chip you'd expect in a chat app. */
+.body.markdown {
+  white-space: normal;
+}
+.body.markdown p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.body.markdown p + p,
+.body.markdown p + ul,
+.body.markdown p + ol,
+.body.markdown p + blockquote,
+.body.markdown p + pre,
+.body.markdown ul + p,
+.body.markdown ol + p,
+.body.markdown blockquote + p,
+.body.markdown pre + p {
+  margin-top: 6px;
+}
+.body.markdown ul,
+.body.markdown ol {
+  margin: 0;
+  padding-left: 22px;
+}
+.body.markdown li + li {
+  margin-top: 2px;
+}
+.body.markdown blockquote {
+  margin: 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-muted);
+}
+.body.markdown a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.body.markdown a:hover { text-decoration: underline; }
+.body.markdown h1,
+.body.markdown h2,
+.body.markdown h3,
+.body.markdown h4 {
+  margin: 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.body.markdown table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.body.markdown th,
+.body.markdown td {
+  border: 1px solid var(--border-strong);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+/* Inline code chip. */
+.body.markdown :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  padding: 1px 5px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+
+/* Fenced code block frame. The inner spans come from syntect with
+   theme-baked inline color styles, so we only style the wrapper.
+   `pre.hl` is the marker class our markdown renderer emits. */
+.body.markdown pre,
+.body.markdown pre.hl {
+  margin: 4px 0;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.body.markdown pre code {
+  font: inherit;
+  padding: 0;
+  background: none;
+  border: none;
 }
 
 /* Floating action toolbar — shown on row hover. */

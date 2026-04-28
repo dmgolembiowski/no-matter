@@ -30,6 +30,7 @@ use crate::stores::{
     unread::UnreadStore,
     upload::UploadStore,
 };
+use crate::theme::{self, ThemeStore};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -41,6 +42,7 @@ pub fn App() -> impl IntoView {
     let uploads = UploadStore::new();
     let channels = ChannelStore::new();
     let route = RouteStore::new();
+    let theme_store = ThemeStore::new();
 
     provide_context(auth);
     provide_context(unread);
@@ -49,6 +51,15 @@ pub fn App() -> impl IntoView {
     provide_context(uploads);
     provide_context(channels);
     provide_context(route);
+    provide_context(theme_store);
+
+    // Apply the chosen theme to the DOM and mirror to localStorage on
+    // every change. Runs once on boot so the initial theme (loaded from
+    // storage or system preference) is committed before first paint.
+    let current_theme = theme_store.current();
+    Effect::new(move |_| {
+        theme::apply(current_theme.get());
+    });
 
     let stores = Stores {
         unread,
@@ -106,11 +117,7 @@ pub fn App() -> impl IntoView {
             if let Some(session) = auth.snapshot() {
                 let url = ws_url_for(&session.server_url);
                 let token = session.token.clone();
-                spawn_local(async move {
-                    if let Err(e) = connect(url, token).await {
-                        leptos::logging::error!("realtime connect: {e}");
-                    }
-                });
+                connect(stores, url, token);
             }
         }
         now

@@ -10,13 +10,26 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::server::channels::{
-    add_member, check_channel_name, create_channel, create_group, open_dm, CreateChannelRequest,
-    CreateGroupRequest,
+    add_member, check_channel_name, create_channel, create_group, list_users, open_dm,
+    CreateChannelRequest, CreateGroupRequest,
 };
 use crate::server::messages::delete_message;
 use crate::stores::channels::{ChannelKind, ChannelStore, UserSummary};
 use crate::stores::messages::MessageStore;
 use crate::stores::route::{Modal, RouteStore};
+
+/// Refresh the workspace user directory from the server. Called by every
+/// member-picker modal on open: `/api/initial_state` only seeds users
+/// the caller already shares a channel with, so accounts that signed up
+/// later (or were never co-members) wouldn't otherwise appear.
+fn refresh_user_directory(channels: ChannelStore) {
+    spawn_local(async move {
+        match list_users().await {
+            Ok(users) => channels.merge_users(users),
+            Err(e) => leptos::logging::warn!("list_users: {e}"),
+        }
+    });
+}
 
 #[component]
 pub fn ModalHost() -> impl IntoView {
@@ -279,6 +292,8 @@ fn CreateGroupForm() -> impl IntoView {
     let channels = expect_context::<ChannelStore>();
     let users = channels.users_list();
 
+    refresh_user_directory(channels);
+
     let name = RwSignal::new(String::new());
     let selected_ids = RwSignal::new(Vec::<String>::new());
     let pending = RwSignal::new(false);
@@ -424,6 +439,8 @@ fn AddMemberForm(channel_id: String) -> impl IntoView {
     let channels = expect_context::<ChannelStore>();
     let users = channels.users_list();
     let channel = channels.get(channel_id.clone());
+
+    refresh_user_directory(channels);
 
     let pending = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);
@@ -589,6 +606,8 @@ fn StartDmForm() -> impl IntoView {
     let channels = expect_context::<ChannelStore>();
     let auth = expect_context::<crate::stores::auth::AuthStore>();
     let users_memo = channels.users_list();
+
+    refresh_user_directory(channels);
 
     let pending = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);

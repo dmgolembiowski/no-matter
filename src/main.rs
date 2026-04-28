@@ -1,10 +1,12 @@
 mod app;
 pub(crate) mod components;
 pub(crate) mod config;
+pub(crate) mod markdown;
 pub(crate) mod realtime;
 pub(crate) mod server;
 pub(crate) mod stores;
 pub(crate) mod tauri_bridge;
+pub(crate) mod theme;
 
 use app::*;
 use leptos::prelude::*;

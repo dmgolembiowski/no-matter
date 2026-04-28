@@ -1,15 +1,17 @@
-//! Bridge from Tauri events into Leptos reactive state.
+//! Bridge from server WebSocket events into Leptos reactive state.
 //!
-//! Mounted once at app startup. Every `ws://event` and `upload://*`
-//! payload is decoded and dispatched to the appropriate store. New
-//! event types can be added by extending `ServerEvent` here and on the
-//! Tauri side — the `serde(tag = "type")` keeps the wire format stable.
+//! The Leptos WASM frontend opens the WebSocket directly via
+//! `gloo-net` so the realtime path works identically in a browser tab
+//! and inside Tauri's WebView. (The previous design routed frames
+//! through a Tauri command + `app.emit("ws://event", …)`, which left
+//! pure-browser sessions with no event source at all and was the reason
+//! cross-session messages weren't propagating.)
 //!
-//! All stores are passed in by value (they're `Copy`) rather than pulled
-//! from context, so this function can be called before the component
-//! tree is mounted if needed.
+//! Upload progress events still come from Tauri (`upload://*`) since
+//! the upload itself is owned by the Tauri side.
 
 use futures_util::StreamExt;
+use gloo_net::websocket::{futures::WebSocket, Message as WsMessage};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
@@ -108,27 +110,11 @@ pub struct Stores {
     pub auth: AuthStore,
 }
 
-/// Subscribes to Tauri events and routes payloads into stores.
-/// Call exactly once, after stores are constructed.
+/// Mounts auxiliary listeners (currently just upload progress, which
+/// still flows from Tauri). The WebSocket itself isn't opened here —
+/// `connect()` is called once auth is in hand.
 pub fn install_realtime_bridge(stores: Stores) {
-    install_ws_listener(stores);
     install_upload_listeners(stores);
-}
-
-fn install_ws_listener(stores: Stores) {
-    spawn_local(async move {
-        let mut events = match tauri_sys::event::listen::<ServerEvent>("ws://event").await {
-            Ok(e) => e,
-            Err(e) => {
-                leptos::logging::error!("realtime: ws listen failed: {e:?}");
-                return;
-            }
-        };
-
-        while let Some(evt) = events.next().await {
-            handle_server_event(stores, evt.payload);
-        }
-    });
 }
 
 fn install_upload_listeners(stores: Stores) {
@@ -197,6 +183,29 @@ fn handle_server_event(stores: Stores, evt: ServerEvent) {
                         leptos::logging::warn!("notify failed: {e}");
                     }
                 });
+
+                // Audible chime, but only for personal-feel channels
+                // (DMs, group DMs). Public/private channel chatter
+                // would be too noisy if every post pinged.
+                let is_personal = stores.channels.get(channel_id.clone()).with_untracked(|c| {
+                    matches!(
+                        c.as_ref().map(|c| c.kind),
+                        Some(crate::stores::channels::ChannelKind::Dm)
+                            | Some(crate::stores::channels::ChannelKind::Group)
+                    )
+                });
+                leptos::logging::log!(
+                    "chime: channel {} personal={}",
+                    channel_id,
+                    is_personal
+                );
+                if is_personal {
+                    spawn_local(async move {
+                        if let Err(e) = tauri_bridge::play_chime().await {
+                            leptos::logging::warn!("chime invoke failed: {e}");
+                        }
+                    });
+                }
             }
 
             // Append to the message cache if the channel is loaded.
@@ -248,6 +257,17 @@ fn handle_server_event(stores: Stores, evt: ServerEvent) {
         }
         ServerEvent::ChannelCreated { channel } => {
             stores.channels.upsert(channel);
+            // Pull a fresh user directory: a brand-new DM/group can
+            // include people who weren't in our `users` map yet
+            // (initial_state only seeds shared-channel members), and
+            // the sidebar's DM label needs their username to render
+            // correctly from the recipient's perspective.
+            let channels_store = stores.channels;
+            spawn_local(async move {
+                if let Ok(users) = crate::server::channels::list_users().await {
+                    channels_store.merge_users(users);
+                }
+            });
         }
         ServerEvent::MemberAdded {
             channel_id,
@@ -289,18 +309,64 @@ fn notification_title(stores: Stores, channel_id: &str, author_id: &str) -> Stri
     format!("{author} in {channel}")
 }
 
-/// Asks Tauri to open the WebSocket. Done once at boot, after auth.
-pub async fn connect(url: String, token: String) -> Result<(), String> {
-    use tauri_sys::tauri::invoke;
+/// Open the WebSocket and spawn the read loop. Reconnects with
+/// exponential backoff (capped at 30s) so a transient network blip or
+/// server restart doesn't require a re-login.
+///
+/// Returns immediately after spawning — the connection lifecycle runs
+/// in the background. Errors that prevent opening at all are logged and
+/// the loop retries; the function never returns Err in normal operation.
+pub fn connect(stores: Stores, url: String, token: String) {
+    // Server authenticates from `?token=` at the upgrade handshake
+    // (see server/src/ws/gateway.rs). Tokens are URL-safe base64 so
+    // no percent-encoding is needed.
+    let connect_url = if url.contains('?') {
+        format!("{url}&token={token}")
+    } else {
+        format!("{url}?token={token}")
+    };
 
-    #[derive(Serialize)]
-    struct Args {
-        url: String,
-        token: String,
-    }
+    spawn_local(async move {
+        let mut backoff_ms: u32 = 500;
+        loop {
+            let ws = match WebSocket::open(&connect_url) {
+                Ok(ws) => ws,
+                Err(e) => {
+                    leptos::logging::warn!("realtime: ws open failed: {e}");
+                    gloo_timers::future::TimeoutFuture::new(backoff_ms).await;
+                    backoff_ms = (backoff_ms.saturating_mul(2)).min(30_000);
+                    continue;
+                }
+            };
 
-    let _: () = invoke("connect_realtime", &Args { url, token })
-        .await
-        .map_err(|e| format!("{e:?}"))?;
-    Ok(())
+            backoff_ms = 500;
+            let (_write, mut read) = ws.split();
+
+            while let Some(frame) = read.next().await {
+                match frame {
+                    Ok(WsMessage::Text(txt)) => {
+                        match serde_json::from_str::<ServerEvent>(&txt) {
+                            Ok(evt) => handle_server_event(stores, evt),
+                            Err(e) => {
+                                leptos::logging::warn!("realtime: parse: {e} — frame: {txt}");
+                            }
+                        }
+                    }
+                    Ok(WsMessage::Bytes(_)) => {
+                        // Server only sends text frames; ignore any binary noise.
+                    }
+                    Err(e) => {
+                        leptos::logging::warn!("realtime: ws error: {e}");
+                        break;
+                    }
+                }
+            }
+
+            // Stream ended — server closed or network dropped. Reconnect.
+            leptos::logging::log!("realtime: ws closed, reconnecting…");
+            handle_server_event(stores, ServerEvent::Disconnected);
+            gloo_timers::future::TimeoutFuture::new(backoff_ms).await;
+            backoff_ms = (backoff_ms.saturating_mul(2)).min(30_000);
+        }
+    });
 }

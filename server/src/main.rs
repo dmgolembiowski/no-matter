@@ -66,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
         .route("/api/initial_state", get(channels::initial_state))
+        .route("/api/list_users", get(channels::list_users))
         .route("/api/check_channel_name", post(channels::check_name))
         .route("/api/create_channel", post(channels::create_channel))
         .route("/api/create_group", post(channels::create_group))

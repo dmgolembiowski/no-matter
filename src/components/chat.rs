@@ -81,10 +81,10 @@ fn ChatHeader(
                 })}
             </h2>
 
-            // Add-member button only makes sense for groups (and private
-            // channels, in a fuller impl). DMs/public channels skip it.
             <Show when=move || channel.with(|c| {
-                matches!(c.as_ref().map(|x| x.kind), Some(ChannelKind::Group))
+                matches!(c.as_ref().map(|x| x.kind), Some(ChannelKind::Public))
+                || matches!(c.as_ref().map(|x| x.kind), Some(ChannelKind::Group))
+                || matches!(c.as_ref().map(|x| x.kind), Some(ChannelKind::Private))
             })>
                 <button
                     class="chat-action"
@@ -114,28 +114,29 @@ fn Composer(channel_id: String) -> impl IntoView {
     // draft. A staged file with `error.is_some()` is excluded so the
     // user can retry without that attachment going out.
     let ready_file_ids = move || -> Vec<String> {
-        staged.with(|v| {
-            v.iter()
-                .filter_map(|s| s.file_id.clone())
-                .collect()
-        })
+        staged.with(|v| v.iter().filter_map(|s| s.file_id.clone()).collect())
     };
 
-    let any_uploading = move || staged.with(|v| v.iter().any(|s| s.file_id.is_none() && s.error.is_none()));
+    let any_uploading =
+        move || staged.with(|v| v.iter().any(|s| s.file_id.is_none() && s.error.is_none()));
 
     let on_file_change = move |_| {
-        let Some(input) = file_input.get() else { return };
+        let Some(input) = file_input.get() else {
+            return;
+        };
         let Some(files) = input.files() else { return };
         for i in 0..files.length() {
             let Some(file) = files.item(i) else { continue };
             let local_id = client_msg_id();
             let name = file.name();
-            staged.update(|v| v.push(StagedFile {
-                local_id: local_id.clone(),
-                name,
-                file_id: None,
-                error: None,
-            }));
+            staged.update(|v| {
+                v.push(StagedFile {
+                    local_id: local_id.clone(),
+                    name,
+                    file_id: None,
+                    error: None,
+                })
+            });
             let channel = cid.get_value();
             let local_id = local_id.clone();
             spawn_local(async move {

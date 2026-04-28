@@ -52,6 +52,13 @@ pub async fn list_initial_state() -> Result<InitialState, ServerError> {
     client::get("/api/initial_state").await
 }
 
+/// Fetch every user in the workspace. Member pickers call this on open
+/// so they can discover accounts the caller doesn't already share a
+/// channel with — `initial_state` only returns shared-channel members.
+pub async fn list_users() -> Result<Vec<UserSummary>, ServerError> {
+    client::get("/api/list_users").await
+}
+
 pub async fn check_channel_name(name: String) -> Result<bool, ServerError> {
     let resp: CheckNameResponse =
         client::post("/api/check_channel_name", &CheckNameWire { name: &name }).await?;

@@ -10,10 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{mpsc, Mutex};
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{Message as WsMessage, Utf8Bytes},
-};
+use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 /// Server -> client events. Mirrored byte-for-byte on the Leptos side
 /// (see `src/realtime.rs`) so a single `serde_json::from_str` round-trips.
@@ -108,23 +105,22 @@ pub fn spawn(app: AppHandle, url: String, token: String) {
     tauri::async_runtime::spawn(async move {
         let mut backoff = Duration::from_millis(500);
 
+        // Server authenticates from the ?token= query at upgrade time
+        // (see server/src/ws/gateway.rs). Tokens are URL-safe base64
+        // (auth.rs::issue_token), so no percent-encoding required.
+        let connect_url = if url.contains('?') {
+            format!("{url}&token={token}")
+        } else {
+            format!("{url}?token={token}")
+        };
+
         loop {
-            match connect_async(&url).await {
+            match connect_async(&connect_url).await {
                 Ok((stream, _)) => {
                     backoff = Duration::from_millis(500);
                     let _ = app.emit("ws://event", ServerEvent::Reconnected);
 
                     let (mut write, mut read) = stream.split();
-
-                    // Auth frame first. Mattermost-style: send a hello with token.
-                    let auth = serde_json::json!({ "action": "authenticate", "token": token });
-                    if write
-                        .send(WsMessage::Text(Utf8Bytes::from(auth.to_string())))
-                        .await
-                        .is_err()
-                    {
-                        continue;
-                    }
 
                     // Wire up the outbound channel so other commands can send.
                     let (tx, mut rx) = mpsc::unbounded_channel::<WsMessage>();
